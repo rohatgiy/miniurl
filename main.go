@@ -1,7 +1,8 @@
 package main
 
 import (
-	"io"
+	"net/url"
+	"math/rand"
 
 	"github.com/gin-gonic/gin"
 	"github.com/redis/go-redis/v9"
@@ -9,6 +10,15 @@ import (
 
 type ShortenURLRequestBody struct {
 	url string `json:"url"`
+}
+
+func generateSlug() string {
+	var letters = []rune("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789")
+	b := make([]rune, 10)
+	for i := range b {
+		b[i] = letters[rand.Intn(len(letters))]
+	}
+	return string(b)
 }
 
 func initRouter(redisClient *redis.Client) *gin.Engine {
@@ -32,8 +42,18 @@ func initRouter(redisClient *redis.Client) *gin.Engine {
 		}
 
 		// validate URL
+		url, err := url.ParseRequestURI(body.url)
+		if err != nil {
+			c.JSON(400, gin.H{
+				"error": "Invalid URL",
+			})
+			return
+		}
 
-		// shorten URL
+		// shorten URL/generate slug
+		slug := generateSlug()
+
+		// check if slug is already in use
 
 		// save to Redis
 
