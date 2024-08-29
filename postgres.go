@@ -11,3 +11,14 @@ func initPostgres() *pg.DB {
 
 	return db
 }
+
+func checkIfSlugExists(db *pg.DB, slug string) (bool, error) {
+	urlQueryResult := &Slug{}
+	err := db.Model(urlQueryResult).Column("slug").Where("slug = ?", slug).Select()
+
+	return err == nil, err
+}
+
+func saveSlug(db *pg.DB, slug *Slug) (pg.Result, error) {
+	return db.Model(slug).Insert()
+}

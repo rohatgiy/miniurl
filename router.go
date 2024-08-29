@@ -37,9 +37,9 @@ func shortenURL(postgresClient *pg.DB) gin.HandlerFunc {
 		// check if slug is already in use
 		// use bloom filter?
 		// add retry logic
-		urlQueryResult := &Slug{}
-		err = postgresClient.Model(urlQueryResult).Column("slug").Where("slug = ?", slug).Select()
-		if err == nil {
+
+		slugExists, err := checkIfSlugExists(postgresClient, slug)
+		if slugExists {
 			c.JSON(500, gin.H{
 				"error":  "Slug already in use",
 				"reason": "Please try again",
@@ -56,10 +56,10 @@ func shortenURL(postgresClient *pg.DB) gin.HandlerFunc {
 		}
 
 		// save to pgsql
-		_, err = postgresClient.Model(&Slug{
+		_, err = saveSlug(postgresClient, &Slug{
 			Url:  url.String(),
 			Slug: slug,
-		}).Insert()
+		})
 
 		if err != nil {
 			c.JSON(500, gin.H{
