@@ -10,3 +10,6 @@ docker_run_redis:
 	docker run --name miniurl_redis \
 	-p 6379:6379 \
 	-d redis:latest
+
+dev:
+	go run *.go
