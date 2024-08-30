@@ -1,7 +1,10 @@
 package main
 
 import (
+	"context"
+	"fmt"
 	"net/url"
+	"os"
 
 	"github.com/gin-gonic/gin"
 	"github.com/go-pg/pg/v10"
@@ -76,12 +79,31 @@ func shortenURL(postgresClient *pg.DB) gin.HandlerFunc {
 	}
 }
 
-func redirectURL(postgresClient *pg.DB) gin.HandlerFunc {
+var ctx = context.Background()
+
+func redirectURL(redisClient *redis.Client, postgresClient *pg.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		slug := c.Param("slug")
 
 		urlQueryResult := &Slug{}
-		err := postgresClient.Model(urlQueryResult).Column("url").Where("slug = ?", slug).Select()
+
+		url, err := redisClient.Get(ctx, slug).Result()
+		if err == nil {
+			fmt.Printf("Cache hit %s\n", slug)
+			c.Redirect(301, url)
+			return
+		}
+		if err != redis.Nil {
+			fmt.Fprintf(os.Stderr, "Failed to retrieve URL from cache: %s\n", err.Error())
+			c.JSON(500, gin.H{
+				"error":  "Internal server error",
+				"reason": err.Error(),
+			})
+			return
+		}
+		fmt.Printf("Cache miss %s\n", slug)
+
+		err = postgresClient.Model(urlQueryResult).Column("url").Where("slug = ?", slug).Select()
 		if err != nil {
 			c.JSON(404, gin.H{
 				"error":  "Page not found",
@@ -89,6 +111,12 @@ func redirectURL(postgresClient *pg.DB) gin.HandlerFunc {
 			})
 			return
 		}
+
+		err = redisClient.Set(ctx, slug, urlQueryResult.Url, 0).Err()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Failed to cache URL: %s\n", err.Error())
+		}
+		fmt.Printf("Cached %s\n", slug)
 
 		c.Redirect(301, urlQueryResult.Url)
 	}
@@ -105,7 +133,7 @@ func initRouter(redisClient *redis.Client, postgresClient *pg.DB) *gin.Engine {
 
 	router.POST("/mini", shortenURL(postgresClient))
 
-	router.GET("/:slug", redirectURL(postgresClient))
+	router.GET("/:slug", redirectURL(redisClient, postgresClient))
 
 	return router
 }
