@@ -6,10 +6,28 @@ import (
 	"net/url"
 	"os"
 
+	"golang.org/x/time/rate"
+
 	"github.com/gin-gonic/gin"
 	"github.com/go-pg/pg/v10"
 	"github.com/redis/go-redis/v9"
 )
+
+var ctx = context.Background()
+
+func rateLimiter(limiter *rate.Limiter) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if !limiter.Allow() {
+			c.JSON(429, gin.H{
+				"error":  "Too many requests",
+				"reason": "Please try again later",
+			})
+			c.Abort()
+			return
+		}
+		c.Next()
+	}
+}
 
 func shortenURL(postgresClient *pg.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -79,8 +97,6 @@ func shortenURL(postgresClient *pg.DB) gin.HandlerFunc {
 	}
 }
 
-var ctx = context.Background()
-
 func redirectURL(redisClient *redis.Client, postgresClient *pg.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		slug := c.Param("slug")
@@ -124,6 +140,10 @@ func redirectURL(redisClient *redis.Client, postgresClient *pg.DB) gin.HandlerFu
 
 func initRouter(redisClient *redis.Client, postgresClient *pg.DB) *gin.Engine {
 	router := gin.Default()
+	limit := rate.Limit(100)
+	limiter := rate.NewLimiter(limit, 10)
+
+	router.Use(rateLimiter(limiter))
 
 	router.GET("/", func(c *gin.Context) {
 		c.JSON(200, gin.H{
