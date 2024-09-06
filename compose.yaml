@@ -2,7 +2,9 @@ services:
   server:
     build: .
     ports:
-      - "8080:8080"
+      - 8080
+    deploy:
+      replicas: 3
     depends_on:
       - redis
       - postgres
@@ -11,6 +13,9 @@ services:
       - postgres
     environment:
       - ENV
+      - BASE_URL=http://localhost
+    networks:
+      - miniurl_network
 
   redis:
     image: "redis:latest"
@@ -19,6 +24,8 @@ services:
     volumes:
       - "./config/redis.conf:/usr/local/etc/redis/redis.conf"
     command: ["redis-server", "/usr/local/etc/redis/redis.conf"]
+    networks:
+      - miniurl_network
 
   postgres:
     image: "postgres:latest"
@@ -29,3 +36,23 @@ services:
     environment:
       POSTGRES_USER: "admin"
       POSTGRES_PASSWORD: "root"
+    networks:
+      - miniurl_network
+
+  nginx:
+    image: "nginx:latest"
+    ports:
+      - "80:80"
+    volumes:
+      - "./config/nginx.conf:/etc/nginx/nginx.conf"
+    depends_on:
+      - server
+    networks:
+      - miniurl_network
+
+networks:
+  miniurl_network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 192.168.0.0/20

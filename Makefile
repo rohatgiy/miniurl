@@ -14,7 +14,7 @@ d_redis:
 	redis-server /usr/local/etc/redis/redis.conf
 
 dc_up:
-	ENV=prod docker-compose up --build
+	ENV=prod docker-compose up --build -d
 
 dev:
 	go run *.go
