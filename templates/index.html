@@ -1,0 +1,16 @@
+<!DOCTYPE html>
+<html>
+<head>
+	<title>miniurl</title>
+	<link rel="icon" href="/favicon.ico" type="image/x-ico">
+	<script src="https://unpkg.com/htmx.org@2.0.2" integrity="sha384-Y7hw+L/jvKeWIRRkqWYfPcvVxHzVzn5REgzbawhxAuQGwX1XWe70vji+VSeHOThJ" crossorigin="anonymous"></script>
+	<script src='https://unpkg.com/htmx.org/dist/ext/response-targets.js'></script>
+</head>
+<body hx-ext="response-targets">
+	<h1>miniurl</h1>
+	<form hx-boost="true" action="/mini" method="post" hx-swap="outerHTML" hx-target-4xx="this">
+		<input type="text" name="url" placeholder="Enter a URL">
+		<input type="submit" value="Shorten">
+	</form>
+</body>
+</html>

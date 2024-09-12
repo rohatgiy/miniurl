@@ -29,75 +29,120 @@ func rateLimiter(limiter *rate.Limiter) gin.HandlerFunc {
 	}
 }
 
-func shortenURL(postgresClient *pg.DB) gin.HandlerFunc {
+func shortenURL(postgresClient *pg.DB, req *ShortenURLRequestBody) (*ShortenURLResponse, *Error) {
+	// validate URL
+	url, err := url.ParseRequestURI(req.Url)
+	if err != nil {
+		return nil, &Error{
+			Error:  "Invalid URL",
+			Reason: err.Error(),
+			Code:   400,
+		}
+	}
+
+	// shorten URL/generate slug
+	slug := generateSlug()
+
+	// check if slug is already in use
+	// use bloom filter?
+	// add retry logic
+
+	slugExists, err := checkIfSlugExists(postgresClient, slug)
+	if slugExists {
+		return nil, &Error{
+			Error:  "Slug already in use",
+			Reason: "Please try again",
+			Code:   500,
+		}
+	}
+
+	if err != pg.ErrNoRows {
+		return nil, &Error{
+			Error:  "Internal server error",
+			Reason: err.Error(),
+			Code:   500,
+		}
+	}
+
+	// save to pgsql
+	_, err = saveSlug(postgresClient, &Slug{
+		Url:  url.String(),
+		Slug: slug,
+	})
+
+	if err != nil {
+		return nil, &Error{
+			Error:  "Failed to save shortened URL",
+			Reason: err.Error(),
+			Code:   500,
+		}
+	}
+
+	// return shortened URL
+	return &ShortenURLResponse{
+		MiniURL: buildShortenedURL(slug),
+	}, nil
+}
+
+func bffShortenURLHandler(postgresClient *pg.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var body ShortenURLRequestBody
-		err := c.BindJSON(&body)
+		parseError := c.ShouldBind(&body)
 
-		if err != nil {
-			c.JSON(400, gin.H{
+		if parseError != nil {
+			c.HTML(400, "error.tmpl", gin.H{
 				"error":  "Invalid request body",
-				"reason": err.Error(),
+				"reason": parseError.Error(),
 			})
 			return
 		}
 
-		// validate URL
-		url, err := url.ParseRequestURI(body.Url)
-		if err != nil {
-			c.JSON(400, gin.H{
-				"error":  "Invalid URL",
-				"reason": err.Error(),
-			})
-			return
-		}
-
-		// shorten URL/generate slug
-		slug := generateSlug()
-
-		// check if slug is already in use
-		// use bloom filter?
-		// add retry logic
-
-		slugExists, err := checkIfSlugExists(postgresClient, slug)
-		if slugExists {
-			c.JSON(500, gin.H{
-				"error":  "Slug already in use",
-				"reason": "Please try again",
-			})
-			return
-		}
-
-		if err != pg.ErrNoRows {
-			c.JSON(500, gin.H{
-				"error":  "Internal server error",
-				"reason": err.Error(),
-			})
-			return
-		}
-
-		// save to pgsql
-		_, err = saveSlug(postgresClient, &Slug{
-			Url:  url.String(),
-			Slug: slug,
-		})
+		response, err := shortenURL(postgresClient, &body)
 
 		if err != nil {
-			c.JSON(500, gin.H{
-				"error":  "Failed to save shortened URL",
-				"reason": err.Error(),
+			c.HTML(err.Code, "error.tmpl", gin.H{
+				"error":  err.Error,
+				"reason": err.Reason,
 			})
 			return
 		}
 
-		// return shortened URL
-		c.JSON(201, gin.H{
-			"miniurl": buildShortenedURL(slug),
+		c.HTML(response.Code, "mini.tmpl", gin.H{
+			"miniurl": response.MiniURL,
 		})
 	}
 }
 
-func redirectURL(redisClient *redis.Client, postgresClient *pg.DB) gin.HandlerFunc {
+func shortenURLHandler(postgresClient *pg.DB) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var body ShortenURLRequestBody
+		parseError := c.BindJSON(&body)
+
+		if parseError != nil {
+			c.JSON(400, gin.H{
+				"error":  "Invalid request body",
+				"reason": parseError.Error(),
+			})
+			return
+		}
+
+		response, err := shortenURL(postgresClient, &body)
+
+		if err != nil {
+			c.JSON(err.Code, gin.H{
+				"error":  err.Error,
+				"reason": err.Reason,
+			})
+			return
+		}
+
+		c.JSON(response.Code, gin.H{
+			"miniurl": response.MiniURL,
+		})
+	}
+}
+
+func redirectURLHandler(redisClient *redis.Client, postgresClient *pg.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		slug := c.Param("slug")
 
@@ -143,17 +188,24 @@ func initRouter(redisClient *redis.Client, postgresClient *pg.DB) *gin.Engine {
 	limit := rate.Limit(100)
 	limiter := rate.NewLimiter(limit, 10)
 
+	router.LoadHTMLGlob("templates/*")
+	router.StaticFile("/favicon.ico", "./assets/favicon.ico")
+
 	router.Use(rateLimiter(limiter))
 
 	router.GET("/", func(c *gin.Context) {
-		c.JSON(200, gin.H{
-			"message": "Hello World!",
-		})
+		c.HTML(200, "index.html", gin.H{})
 	})
 
-	router.POST("/mini", shortenURL(postgresClient))
+	router.GET("/mini", func(c *gin.Context) {
+		c.Redirect(301, "/")
+	})
 
-	router.GET("/:slug", redirectURL(redisClient, postgresClient))
+	router.POST("/mini", bffShortenURLHandler(postgresClient))
+
+	router.POST("/api/mini", shortenURLHandler(postgresClient))
+
+	router.GET("/:slug", redirectURLHandler(redisClient, postgresClient))
 
 	return router
 }
