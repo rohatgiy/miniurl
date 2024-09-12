@@ -29,7 +29,7 @@ You must have [Docker and Docker Compose]((https://docs.docker.com/engine/instal
 ## Technologies used
 - Go: REST API written in Go, using Gin server framework
 - PostgreSQL: Underlying database for storing shortened URLs
-- Redis: Cache for frequently accessed URLs (default 2GB max cache size)
+- Redis: Cache for frequently accessed URLs + Bloom filter to prevent overlapping URL slugs (default 2GB max cache size)
 - Nginx: Load balancer to split traffic between server instances
 - HTMX: Lightweight FE to shorten URLs
 
