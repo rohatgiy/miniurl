@@ -18,7 +18,7 @@ services:
       - miniurl_network
 
   redis:
-    image: "redis:latest"
+    image: "redislabs/rebloom:latest"
     ports:
       - "6379:6379"
     volumes:

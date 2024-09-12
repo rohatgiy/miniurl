@@ -23,8 +23,9 @@ func main() {
 	}
 
 	redis := initRedis()
+	bloom := initBloomFilter()
 	postgres := initPostgres()
-	router := initRouter(redis, postgres)
+	router := initRouter(redis, postgres, bloom)
 	router.ForwardedByClientIP = true
 	router.SetTrustedProxies([]string{"192.168.0.0/20"})
 

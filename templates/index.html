@@ -8,7 +8,7 @@
 </head>
 <body hx-ext="response-targets">
 	<h1>miniurl</h1>
-	<form hx-boost="true" action="/mini" method="post" hx-swap="outerHTML" hx-target-4xx="this">
+	<form hx-boost="true" action="/mini" method="post" hx-swap="outerHTML" hx-target-4xx="this" hx-target-5xx="this">
 		<input type="text" name="url" placeholder="Enter a URL">
 		<input type="submit" value="Shorten">
 	</form>

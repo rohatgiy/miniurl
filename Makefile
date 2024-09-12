@@ -10,7 +10,7 @@ d_redis:
 	docker run --name miniurl_redis \
 	-p 6379:6379 \
 	-v $(PWD)/config/redis.conf:/usr/local/etc/redis/redis.conf \
-	-d redis:latest \
+	-d redislabs/rebloom:latest \
 	redis-server /usr/local/etc/redis/redis.conf
 
 dc_up:

@@ -8,6 +8,7 @@ import (
 
 	"golang.org/x/time/rate"
 
+	redisbloom "github.com/RedisBloom/redisbloom-go"
 	"github.com/gin-gonic/gin"
 	"github.com/go-pg/pg/v10"
 	"github.com/redis/go-redis/v9"
@@ -29,7 +30,7 @@ func rateLimiter(limiter *rate.Limiter) gin.HandlerFunc {
 	}
 }
 
-func shortenURL(postgresClient *pg.DB, req *ShortenURLRequestBody) (*ShortenURLResponse, *Error) {
+func shortenURL(postgresClient *pg.DB, bloomFilter *redisbloom.Client, req *ShortenURLRequestBody) (*ShortenURLResponse, *Error) {
 	// validate URL
 	url, err := url.ParseRequestURI(req.Url)
 	if err != nil {
@@ -44,21 +45,39 @@ func shortenURL(postgresClient *pg.DB, req *ShortenURLRequestBody) (*ShortenURLR
 	slug := generateSlug()
 
 	// check if slug is already in use
-	// use bloom filter?
-	// add retry logic
-
-	slugExists, err := checkIfSlugExists(postgresClient, slug)
-	if slugExists {
+	bloomFilterExists, err := bloomFilter.Exists("bloom", slug)
+	if err != nil {
 		return nil, &Error{
-			Error:  "Slug already in use",
-			Reason: "Please try again",
+			Error:  "Failed to check if slug exists",
+			Reason: err.Error(),
 			Code:   500,
 		}
 	}
 
-	if err != pg.ErrNoRows {
+	if bloomFilterExists {
+		slugExists, err := checkIfSlugExists(postgresClient, slug)
+		if slugExists {
+			return nil, &Error{
+				Error:  "Slug already in use",
+				Reason: "Please try again",
+				Code:   500,
+			}
+		}
+
+		if err != pg.ErrNoRows {
+			return nil, &Error{
+				Error:  "Internal server error",
+				Reason: err.Error(),
+				Code:   500,
+			}
+		}
+	}
+
+	// add slug to bloom filter
+	_, err = bloomFilter.Add("bloom", slug)
+	if err != nil {
 		return nil, &Error{
-			Error:  "Internal server error",
+			Error:  "Failed to add slug to bloom filter",
 			Reason: err.Error(),
 			Code:   500,
 		}
@@ -84,7 +103,7 @@ func shortenURL(postgresClient *pg.DB, req *ShortenURLRequestBody) (*ShortenURLR
 	}, nil
 }
 
-func bffShortenURLHandler(postgresClient *pg.DB) gin.HandlerFunc {
+func bffShortenURLHandler(postgresClient *pg.DB, bloomFilter *redisbloom.Client) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var body ShortenURLRequestBody
 		parseError := c.ShouldBind(&body)
@@ -97,7 +116,7 @@ func bffShortenURLHandler(postgresClient *pg.DB) gin.HandlerFunc {
 			return
 		}
 
-		response, err := shortenURL(postgresClient, &body)
+		response, err := shortenURL(postgresClient, bloomFilter, &body)
 
 		if err != nil {
 			c.HTML(err.Code, "error.tmpl", gin.H{
@@ -113,7 +132,7 @@ func bffShortenURLHandler(postgresClient *pg.DB) gin.HandlerFunc {
 	}
 }
 
-func shortenURLHandler(postgresClient *pg.DB) gin.HandlerFunc {
+func shortenURLHandler(postgresClient *pg.DB, bloomFilter *redisbloom.Client) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var body ShortenURLRequestBody
 		parseError := c.BindJSON(&body)
@@ -126,7 +145,7 @@ func shortenURLHandler(postgresClient *pg.DB) gin.HandlerFunc {
 			return
 		}
 
-		response, err := shortenURL(postgresClient, &body)
+		response, err := shortenURL(postgresClient, bloomFilter, &body)
 
 		if err != nil {
 			c.JSON(err.Code, gin.H{
@@ -183,7 +202,7 @@ func redirectURLHandler(redisClient *redis.Client, postgresClient *pg.DB) gin.Ha
 	}
 }
 
-func initRouter(redisClient *redis.Client, postgresClient *pg.DB) *gin.Engine {
+func initRouter(redisClient *redis.Client, postgresClient *pg.DB, bloomFilter *redisbloom.Client) *gin.Engine {
 	router := gin.Default()
 	limit := rate.Limit(100)
 	limiter := rate.NewLimiter(limit, 10)
@@ -201,9 +220,9 @@ func initRouter(redisClient *redis.Client, postgresClient *pg.DB) *gin.Engine {
 		c.Redirect(301, "/")
 	})
 
-	router.POST("/mini", bffShortenURLHandler(postgresClient))
+	router.POST("/mini", bffShortenURLHandler(postgresClient, bloomFilter))
 
-	router.POST("/api/mini", shortenURLHandler(postgresClient))
+	router.POST("/api/mini", shortenURLHandler(postgresClient, bloomFilter))
 
 	router.GET("/:slug", redirectURLHandler(redisClient, postgresClient))
 
